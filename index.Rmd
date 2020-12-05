@@ -1,30 +1,149 @@
 ---
 title: "Practical Machine Learning Course Project"
-author: "Patricia Watson"
-date: "12/4/2020"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+### Author: Patricia Watson
+
+##### Background: The goal of this assignment is to predict how well 6 participants performed barbell lifts using data from accelerometers on the belt, forearm, arm, and dumbell of the participants. The "classe" variable in the training dataset provided identfies the manner in which participants did the exercise as specified in the Human Activity Recognition(HAR) Project: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E). 
+
+##### HAR Project Citiation: Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6.Cited by 2 (Google Scholar)Read more: http://groupware.les.inf.puc-rio.br/har#literature#ixzz6fbReYLtH
+
+Approach: Four candidate prediction models will be fitted using the following algorithms: Random Forest (rf), Bagged Classification and Regression Trees (treebag), Gradient Boosting Machine (gbm), and Linear Discriminant Analysis (lda). 
+
+First, the training dataset is split into training (75%) and validation (25%) datasets for cross validation. Columns with more than 95 percent NA or #DIV/0 values are removed from the training, validation, and testing datasets.
+
+Because the random forest algorithm is considered very accurate, a benchmark random forest model is fitted with the training dataset using the train function default parameters. The Random Forest model's Accuracy is used to evaluate the predicted out of sample error rate (Accuracy) for each candidate model.
+
+Although the Random Forest method is highly accurate, it is also difficult to interpret. Function varImp identifies key variables used in building the benchmark random forest model. Further, a Decision Tree diagram shows the variables that determine the final classification outcome: classe A, B, C, D, E).
+
+Lastly, the candidate model with the highest Accuracy is used to predict the classe variable in the testing dataset. 
+```{r, echo=FALSE, message=FALSE} 
+library(caret)
+library(ggplot2)
 ```
+### Read training and testing csv files, remove columns with more than 95% NA OR DIV/0 values. Remove unnecessary variables from training and testing datasets.
+```{r, echo=TRUE} 
+pmltrain <- read.csv("pml-training.csv")
+pmltest <- read.csv("pml-testing.csv")
+pmltest <- read.csv("pml-testing.csv",header=TRUE,na.strings=c("NA","#DIV/0!",""))
+pmltrain <- read.csv("pml-training.csv",header=TRUE,na.strings=c("NA","#DIV/0!",""))
+pmltrain2 <-pmltrain
+pmltest2 <- pmltest
+for(i in 1:length(pmltrain)) { #for every column in the training dataset
+  if (sum(is.na(pmltrain[,i]))/nrow(pmltrain)>=.95) { #if NAs > 95% of total observations
+    for(j in 1:length(pmltrain2)) {
+      if(length(grep(names(pmltrain[i]), names(pmltrain2)[j]) ) ==1)  { #if the columns are the same:
+        pmltrain2 <- pmltrain2[,-j] #Remove that column
+      }   
+    } 
+  }
+}
 
-## R Markdown
+for(i in 1:length(pmltest)) 
+{if (sum(is.na(pmltest[,i]))/nrow(pmltest)>=.95) 
+{for(j in 1:length(pmltest2)) 
+{if(length(grep(names(pmltest[i]), names(pmltest2)[j]))==1)  
+{pmltest2 <- pmltest2[,-j]}   
+} 
+}
+}
+pmltrain2<-pmltrain2[c(-1)]
+pmltest2<-pmltest2[c(-1)]
+pmltrain2$raw_timestamp_part_1<-NULL
+pmltrain2$raw_timestamp_part_2<-NULL
+pmltrain2$cvtd_timestamp<-NULL
+pmltest2$raw_timestamp_part_1<-NULL
+pmltest2$raw_timestamp_part_2<-NULL
+pmltest2$cvtd_timestamp<-NULL
+pmltrain2$classe <-as.factor(pmltrain2$classe)
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
 ```
-
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
+### Separate training dataset into training and validation datasets for cross validation.
+```{r, echo=TRUE}
+set.seed(555)
+inTrain <- createDataPartition(y=pmltrain2$classe, p=0.75, list=FALSE)
+training <- pmltrain2[inTrain,]
+validation <- pmltrain2[-inTrain,]
+testing <- pmltest2
 ```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+### Fit Random Forest model to establish benchmark Accuracy.
+```{r, echo=TRUE}
+start_time <- Sys.time()
+set.seed(555)
+rf_benchmark_time <- system.time( {modFit <-train(classe~., data=training, method="rf")})
+valPred <-predict(modFit, validation)
+cmatrix <-confusionMatrix(validation$classe,valPred)
+rf_benchmark_accuracy <- cmatrix$overall[1]
+```
+### Fit candidate Random Forest model using knnImpute to impute missing variables. Perform cross validation resampling 3 times. Predict classe in validation dataset using candidate random forest model.
+```{r, echo=TRUE}
+start_time <- Sys.time()
+set.seed(555)
+rf_knnimpute_time <- system.time( {modFitrf <- train(classe~., data=training, method="rf", preProcess="knnImpute",trControl=trainControl(method="cv", number=3)) })
+valPredrf <-predict(modFitrf, validation)
+cmatrixrf <-confusionMatrix(validation$classe,valPredrf)
+rf_knnimpute_accuracy <- cmatrixrf$overall[1]
+```
+Note: knnimpute significantly reduces processing time in building the random forest model compared to benchmark random forest model process time.
+```{r, echo=TRUE}
+rf_benchmark_time
+rf_knnimpute_time
+```
+Random Forest benchmark model Accuracy compared to Random Forest model with knnImpute.
+```{r, echo=TRUE}
+rf_benchmark_accuracy
+rf_knnimpute_accuracy
+```
+### Fit candidate treebag model using knnimpute and 3 cross validation resamples. Use treebag model to predict classe in validation dataset.
+```{r, echo=TRUE}
+set.seed(555)
+modFittb <-train(classe~.,method="treebag",data=training, preprocess="knnImpute",trControl=trainControl(method="cv", number=3))
+valPredtb <-predict(modFittb, validation)
+cmatrixtb<-confusionMatrix(validation$classe,valPredtb)
+```
+### Fit candidate Stochastic Gradient Boosting model using knnimpute and 3 cross validation resamples. Predict classe variable in validation dataset using gbm model. 
+```{r, echo=TRUE}
+set.seed(555)
+modFitgb<-train(classe~.,method="gbm",data=training,preProcess="knnImpute",trControl=trainControl(method="cv", number=3),verbose=FALSE)
+valPredgb <-predict(modFitgb, validation)
+cmatrixgb<-confusionMatrix(validation$classe,valPredgb)
+```
+### Fit candidate lda Linear Discriminant Analysis model using knnimpute and 3 cross validation resamples. Predict classe variable in validation dataset using lda model. 
+```{r, echo=TRUE}
+set.seed(555)
+modFitld<-train(classe~.,method="lda",data=training,preProcess="knnImpute",
+    trControl=trainControl(method="cv", number=3),verbose=FALSE)
+valPredld <-predict(modFitld, validation)
+cmatrixld<-confusionMatrix(validation$classe,valPredld) 
+```
+### Show Accuracy of each candidate model.
+Random Forest Candidate model has highest Accuracy.
+```{r, echo=TRUE}
+accuracy95<-data.frame(Model=c("rf","treebag","gbm","lda"),
+                       Accuracy=c(cmatrixrf$overall[1],
+                                  cmatrixtb$overall[1],
+                                  cmatrixgb$overall[1],
+                                  cmatrixld$overall[1]))
+accuracy95
+```
+### Random Forest model top 20 variables
+Function varImp shows key variables used in building the benchmark random forest model (modFit).
+```{r, echo=TRUE}
+modFitImp <- varImp(modFit)
+modFitImp
+```
+### Decision Tree diagram shows which variables determine the final classification outcome classe (A, B, C, D, E).
+```{r, echo=TRUE}
+modFitrp <- train(classe~.,method="rpart",data=training)
+rattle::fancyRpartPlot(modFitrp$finalModel)
+```
+\n
+\n
+```{r, echo=TRUE}
+```
+## Apply random forest model to testing dataset and display classe predictions.
+```{r, echo=TRUE}
+testpred <-predict(modFitrf, testing)
+testpred
+```
